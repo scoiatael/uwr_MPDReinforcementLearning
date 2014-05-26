@@ -14,7 +14,7 @@ from sys import exit
 def runAgent(agent):
     c = cmd.Cmd()
     c.postcmd = (lambda x, y: print(agent.printable()) or False)
-    c.do_n = (lambda x: agent.next)
+    c.do_n = (lambda x: agent.next())
     c.do_q = (lambda x: exit(0))
     c.cmdloop()
 
@@ -23,13 +23,12 @@ class Tile:
     def __init__(self, t, v):
         state, value = t.split(':')
         self.state=state
-        if(value != ""):
-            self.value = int(value)
         if(not type(v) is float):
             raise ValueError("Value for tile not provided");
-
-    def value(self):
-        return self.value
+        if(value != ""):
+            self.value = float(value)
+        else:
+            self.value = v
 
     def isTerminal(self):
         return self.state=="G"
@@ -45,7 +44,12 @@ class Board:
         self.board = [[Tile(t, val) for t in lne.split()] for lne in string]
 
     def at(self, p):
-        return self.board[p.imag][p.real]
+        x = int(p.imag)
+        y = int(p.real)
+        assert x < len(self.board), "x too far: {} out of {}".format(x, len(self.board))
+        assert y < len(self.board[x]), "y too far: {} out of {}".format(y, len(self.board[x]))
+
+        return self.board[x][y]
 
     def findStarting(self):
         for ln in range(len(self.board)):
@@ -91,10 +95,12 @@ class World:
         self.board=Board(r, string)
         if(abs(a+b+b - 1) > 0.01):
             raise ValueError("Bad probabilities")
+        assert len(self.board.board[0]) == self.N, "bad board x size: {} vs {}".format(len(self.board.board[0]), self.N)
+        assert len(self.board.board) == self.M, "bad board y size: {} vs {}".format(len(self.board.board), self.M)
 
     def simulateMove(self, state, move, sim = True):
         pAndR = [ (ns, self.board.at(ns)) for ns in [ state + p.toPoint() for p in move.possibleOutcomes()] ]
-        pAndR = [ (state, self.board.at(state).value) if b.isForbidden() else (s,b) for s,b in pAndR ]
+        pAndR = [ (state, self.board.at(state).value) if b.isForbidden() else (s,b.value) for s,b in pAndR ]
         pAndR = [ ( pAndR[0][0],pAndR[0][1], self.a ), ( pAndR[1][0], pAndR[1][1], self.b ), ( pAndR[2][0], pAndR[2][1], self.b ) ]
         if( not sim ):
             return pAndR
@@ -105,6 +111,12 @@ class World:
             return [pAndR[1], pAndR[0], pAndR[2]]
         return [pAndR[2], pAndR[0], pAndR[1]]
 
+    def rangeN(self):
+        return range(self.N)[1:-1]
+
+    def rangeM(self):
+        return range(self.M)[1:-1]
+
 
 class ValueIterateAgent:
     '''Agent using value iteration algorithm'''
@@ -113,34 +125,49 @@ class ValueIterateAgent:
         self.d = d
         self.U = [[ 0 for x in range(world.N)] for y in range(world.M)]
 
+
+    def processTile(self, x, y):
+        tile = self.world.board.at(complex(x,y))
+        counter = tile.value
+        if(tile.isTerminal()):
+            return counter
+        counter += self.d * max([reduce(add, [ 
+                    self.U[int(s.imag)][int(s.real)] * p for s,v,p in self.world.simulateMove(complex(x,y), move, False) ]) for move in allMoves])
+        return counter
+
     def next(self):
-        self.U = [[self.world.board.at(complex(x,y)).value 
-                + self.d * max(reduce(add, [ v*p in s,v,p in self.world.simulateMove(complex(x,y), move, False) ]))
-            for x in self.world.N]
-            for y in self.world.M]
+        self.U = [[0 for x in range(self.world.N)]] + [[0] + [self.processTile(x,y)
+            for x in self.world.rangeN()] + [0]
+            for y in self.world.rangeM()] + [[0 for x in range(self.world.N)]]
 
     def diff(self, another):
-        return max([max([abs(another[y][x] - self.U[y][x]) for x in range(self.N)]) for y in range(self.M)])
+        return max([max([abs(another[y][x] - self.U[y][x]) for x in self.rangeN()]) for y in self.world.rangeM()])
 
     def printable(self):
-        return self.U
+        return reduce(add, reduce(add, [["{: 7.1f}".format(t) for t in ln] + ["\n"] for ln in [lne[1:-1] for lne in self.U[1:-1]]]))
 
 class QLearningAgent:
     '''Agent using Q-learning algorithm'''
     def __init__(self, d, world):
         s = world.board.findStarting()
+        self.world = world
         if(s == None):
             raise ValueError("Bad board")
         self.x, self.y = s
-        self.reward = world.board[self.y][self.x]
+        self.reward = world.board.at(complex(self.x,self.y)).value
         self.Q = {}
         self.N = {}
+        for a in allMoves+[None]:
+            for x in self.world.rangeN():
+                for y in self.world.rangeM():
+                    self.Q[(a,x,y)] = 0
+                    self.N[(a,x,y)] = 0
         self.d = d
         self.action = None
 
     @staticmethod
     def timeDiffPar(v):
-        return 1/v
+        return 1/(v+1)
 
     def ExploreExploit(self, a):
         if(self.N[(a,self.x,self.y)] < Ne):
@@ -151,12 +178,7 @@ class QLearningAgent:
     def next(self):
         if(self.reward == None):
             self.x, self.y = world.board.findStarting()
-            self.reward = world.board[self.y][self.x]
-
-        if(not (self.action, self.x, self.y) in self.Q):
-            self.Q[(self.action, self.x, self.y)] = 0
-        if(not (self.action, self.x, self.y) in self.N):
-            self.N[(self.action, self.x, self.y)] = 1
+            self.reward = world.board.at(complex(self.x, self.y))
 
         if(self.world.board.at(complex(self.x, self.y)).isTerminal()):
                 self.Q[(None, self.x, self.y)] = self.reward
@@ -164,14 +186,14 @@ class QLearningAgent:
                 return
 
         self.Q[(self.action, self.x, self.y)] += self.timeDiffPar(self.N[(self.action, self.x, self.y)]) * \
-            (self.reward - self.Q[(self.action, self.x, self.y)] + d * max([self.moveUtility(a) for a in allMoves]))
+            (self.reward - self.Q[(self.action, self.x, self.y)] + self.d * max([self.moveUtility(a) for a in allMoves]))
 
         possibilites = [ self.ExploreExploit(a) for a in allMoves ] 
         val = max(possibilites)
-        self.action = possibilites.index(val)
-        s = self.world.simulateMove(complex(self.x,self.y), self.action)
+        self.action = allMoves[possibilites.index(val)]
+        s,v,p = self.world.simulateMove(complex(self.x,self.y), self.action)[0]
         self.x, self.y = (s.real, s.imag)
-        self.reward = self.world.board.at(self.x,self.y).value
+        self.reward = self.world.board.at(s).value
 
     def moveUtility(self, a):
         s,v,p = self.world.simulateMove(complex(self.x, self.y), a, False)[0]
@@ -182,21 +204,30 @@ class QLearningAgent:
 
 
     def printable(self):
-        return [[max([self.Q[(x,y,a)] for a in allMoves]) for x in self.world.N] for y in self.world.M]
+        U = [[max([self.Q[(a,x,y)] for a in allMoves]) for x in self.world.rangeN()] for y in self.world.rangeM()]
+        return reduce(add, reduce(add, [["{: 7.1f}".format(t) for t in ln] + ["\n"] for ln in U]))
 
     def diff(self, another):
-        U = self.printable()
-        return max([max([abs(another[y][x] - U[y][x]) for x in range(self.N)]) for y in range(self.M)])
+        U = [[max([self.Q[(a,x,y)] for a in allMoves]) for x in self.world.rangeN()] for y in self.world.rangeM()]
+        return max([max([abs(another[y][x] - U[y][x]) for x in self.rangeN()]) for y in self.rangeM()])
 
 def createWorld(args):
-    of = open(args.of, 'x')
-    of.write(reduce(add, [str(x)+"  " for x in [args.N, args.M, args.a, args.b, args.r, args.d]]))
+    of = open(args.oF, 'x')
+    of.write(reduce(add, [str(x)+"  " for x in [args.N+2, args.M+2, args.a, args.b, args.r, args.d]]))
+    of.write('\n')
+    for y in range(args.N+2):
+        of.write('F:   ')
     of.write('\n')
     for x in range(args.M):
+        of.write('F:   ')
         for y in range(args.N):
             of.write('_:   ')
+        of.write('F:   ')
         of.write('\n')
-    print("saved to " + args.of)
+    for y in range(args.N+2):
+        of.write('F:   ')
+    of.write('\n')
+    print("saved to " + args.oF)
 
 def fromFile(string):
     lnes = string.splitlines()
@@ -226,12 +257,12 @@ mainParser = argparse.ArgumentParser(description="Create or run AI agents in vir
 #mainParser.set_defaults(func = id)
 subparses = mainParser.add_subparsers()
 createWorldParsers = subparses.add_parser('create_world')
-createWorldParsers.add_argument("N", type=int, help="width")
-createWorldParsers.add_argument("M", type=int, help="height")
-createWorldParsers.add_argument("a", type=float, help="chance to move according to wishes")
-createWorldParsers.add_argument("b", type=float, help="chance to misstep")
-createWorldParsers.add_argument("r", type=float, help="reward for normal tile exploration")
-createWorldParsers.add_argument("d", type=float, help="discount value (lower provide faster algorithm but lower precision)")
+createWorldParsers.add_argument("-N", type=int, help="width",required=True)
+createWorldParsers.add_argument("-M", type=int, help="height",required=True)
+createWorldParsers.add_argument("-a", type=float, help="chance to move according to wishes",required=True)
+createWorldParsers.add_argument("-b", type=float, help="chance to misstep",required=True)
+createWorldParsers.add_argument("-r", type=float, help="reward for normal tile exploration",required=True)
+createWorldParsers.add_argument("-d", type=float, help="discount value (lower provide faster algorithm but lower precision)",required=True)
 createWorldParsers.add_argument("oF", help="where to save file with world description")
 
 createWorldParsers.set_defaults(func=createWorld)
