@@ -1,8 +1,11 @@
 #!/bin/python
-Ne = 15
+Ne = 10
 INFINITY = 10000
+vAgent_iter = 10
+qAgent_iter = 1000
+EPSILON=0.05
 
-import argparse 
+import argparse
 import readline
 import cmd
 import os.path
@@ -10,10 +13,11 @@ from random import random
 from functools import reduce
 from operator import *
 from sys import exit
+from copy import deepcopy
 
 def runAgent(agent):
     c = cmd.Cmd()
-    c.postcmd = (lambda x, y: print(agent.printable()) or False)
+    c.postcmd = (lambda x, y: print(agent.printable()))
     c.do_n = (lambda x: agent.next())
     c.do_q = (lambda x: exit(0))
     c.cmdloop()
@@ -65,7 +69,7 @@ class Move:
             self.state=state
         else:
             raise ValueError("Bad move definition")
-            
+
     def isUp(self):
         return self.state=="U"
     def isDown(self):
@@ -83,7 +87,7 @@ class Move:
             return [self] + [Move(x) for x in "R L".split()]
         return [self] + [Move(x) for x in "U D".split()]
 
-allMoves = [Move(x) for x in "U D R L".split()]
+allMoves = "U D R L".split()
 
 class World:
     '''Description of world agent acts in'''
@@ -107,7 +111,7 @@ class World:
         r = random() - self.a
         if(r < 0):
             return pAndR
-        if(r < self.b): 
+        if(r < self.b):
             return [pAndR[1], pAndR[0], pAndR[2]]
         return [pAndR[2], pAndR[0], pAndR[1]]
 
@@ -131,8 +135,9 @@ class ValueIterateAgent:
         counter = tile.value
         if(tile.isTerminal()):
             return counter
-        counter += self.d * max([reduce(add, [ 
-                    self.U[int(s.imag)][int(s.real)] * p for s,v,p in self.world.simulateMove(complex(x,y), move, False) ]) for move in allMoves])
+        counter += self.d * max([reduce(add, [
+                    self.U[int(s.imag)][int(s.real)] * p for s,v,p in self.world.simulateMove(complex(x,y), Move(move), False) ]) \
+                            for move in allMoves])
         return counter
 
     def next(self):
@@ -141,20 +146,19 @@ class ValueIterateAgent:
             for y in self.world.rangeM()] + [[0 for x in range(self.world.N)]]
 
     def diff(self, another):
-        return max([max([abs(another[y][x] - self.U[y][x]) for x in self.rangeN()]) for y in self.world.rangeM()])
+        return max([max([abs(another.U[y][x] - self.U[y][x]) for x in self.world.rangeN()]) for y in self.world.rangeM()])
 
     def printable(self):
-        return reduce(add, reduce(add, [["{: 7.1f}".format(t) for t in ln] + ["\n"] for ln in [lne[1:-1] for lne in self.U[1:-1]]]))
+        U = self.output()
+        return reduce(add, reduce(add, [["{: 7.1f}".format(t) for t in ln] + ["\n"] for ln in U]))
+
+    def output(self):
+        return [lne[1:-1] for lne in self.U[1:-1]]
 
 class QLearningAgent:
     '''Agent using Q-learning algorithm'''
     def __init__(self, d, world):
-        s = world.board.findStarting()
         self.world = world
-        if(s == None):
-            raise ValueError("Bad board")
-        self.x, self.y = s
-        self.reward = world.board.at(complex(self.x,self.y)).value
         self.Q = {}
         self.N = {}
         for a in allMoves+[None]:
@@ -163,53 +167,85 @@ class QLearningAgent:
                     self.Q[(a,x,y)] = 0
                     self.N[(a,x,y)] = 0
         self.d = d
-        self.action = None
+
+        s = world.board.findStarting()
+        if(s == None):
+            raise ValueError("Bad board")
+        self.x, self.y = s
+        self.reward = world.board.at(complex(self.x,self.y)).value
+
+        possibilites = [ self.ExploreExploit(Move(a)) for a in allMoves ]
+        val = max(possibilites)
+        self.action = Move(allMoves[possibilites.index(val)])
 
     @staticmethod
     def timeDiffPar(v):
         return 1/(v+1)
 
     def ExploreExploit(self, a):
-        if(self.N[(a,self.x,self.y)] < Ne):
-            return INFINITY
+#        if(self.N[(a.state,self.x,self.y)] < Ne):
+        if random() > EPSILON*4:
+            return INFINITY*random()
         else:
-            return self.Q[(a, self.x, self.y)]
+            return self.Q[(a.state, self.x, self.y)]
 
     def next(self):
-        if(self.reward == None):
-            self.x, self.y = world.board.findStarting()
-            self.reward = world.board.at(complex(self.x, self.y))
+        s,v,p = self.world.simulateMove(complex(self.x,self.y), self.action)[0]
+        nx, ny = (int(s.real), int(s.imag))
+        nreward = self.world.board.at(s).value
 
         if(self.world.board.at(complex(self.x, self.y)).isTerminal()):
-                self.Q[(None, self.x, self.y)] = self.reward
-                self.reward = None
-                return
+            self.Q[(None, self.x, self.y)] = self.reward
 
-        self.Q[(self.action, self.x, self.y)] += self.timeDiffPar(self.N[(self.action, self.x, self.y)]) * \
-            (self.reward - self.Q[(self.action, self.x, self.y)] + self.d * max([self.moveUtility(a) for a in allMoves]))
+#            s = self.world.board.findStarting()
+#            self.x, self.y = s
+#            self.reward = self.world.board.at(complex(self.x,self.y)).value
 
-        possibilites = [ self.ExploreExploit(a) for a in allMoves ] 
+#            possibilites = [ self.ExploreExploit(Move(a)) for a in allMoves ]
+#            val = max(possibilites)
+#            self.action = Move(allMoves[possibilites.index(val)])
+#            return
+#            self.reward = None
+#        if(self.reward == None):
+#            self.x, self.y = self.world.board.findStarting()
+#            self.reward = self.world.board.at(complex(self.x, self.y)).value
+
+
+        self.N[(self.action.state, self.x, self.y)] += 1
+        self.Q[(self.action.state, self.x, self.y)] += self.timeDiffPar(self.N[(self.action.state, self.x, self.y)]) * \
+            (self.reward - self.Q[(self.action.state, self.x, self.y)] + \
+             self.d * max([self.moveUtility(Move(a),nx,ny) for a in allMoves] ))#+ [self.Q[(None, nx, ny)]]))
+
+     #   print("new val: " + str(self.Q[(self.action, self.x, self.y)]))
+
+        possibilites = [ self.ExploreExploit(Move(a)) for a in allMoves ]
         val = max(possibilites)
-        self.action = allMoves[possibilites.index(val)]
-        s,v,p = self.world.simulateMove(complex(self.x,self.y), self.action)[0]
-        self.x, self.y = (s.real, s.imag)
-        self.reward = self.world.board.at(s).value
+        self.action = Move(allMoves[possibilites.index(val)])
+     #   print("new act: " + str(self.action.state))
+        self.x, self.y = (nx,ny)
+        self.reward = nreward
+     #   print("new reward: " + str(nreward))
 
-    def moveUtility(self, a):
-        s,v,p = self.world.simulateMove(complex(self.x, self.y), a, False)[0]
+    def moveUtility(self, a,x,y):
+        s,v,p = self.world.simulateMove(complex(x, y), a, False)[0]
         x,y = (s.real, s.imag)
-        if(not (a, x, y) in self.Q):
-            self.Q[(a,x,y)] = 0
-        return self.Q[(a,x,y)]
+        if(not (a.state, x, y) in self.Q):
+            self.Q[(a.state,x,y)] = 0
+        return self.Q[(a.state,x,y)]
 
+    def output(self):
+        U = [[max([self.Q[(a,x,y)] for a in allMoves] + [self.Q[(None, self.x, self.y)]]) 
+            for x in self.world.rangeN()] for y in self.world.rangeM()]
+        return U
 
     def printable(self):
-        U = [[max([self.Q[(a,x,y)] for a in allMoves]) for x in self.world.rangeN()] for y in self.world.rangeM()]
-        return reduce(add, reduce(add, [["{: 7.1f}".format(t) for t in ln] + ["\n"] for ln in U]))
+        U = self.output()
+        return reduce(add, reduce(add, [["{: 7.1f}".format(t) for t in ln] + ["\n"] for ln in U])) + "\n at {} {} \n".format(self.x, self.y)
 
     def diff(self, another):
-        U = [[max([self.Q[(a,x,y)] for a in allMoves]) for x in self.world.rangeN()] for y in self.world.rangeM()]
-        return max([max([abs(another[y][x] - U[y][x]) for x in self.rangeN()]) for y in self.rangeM()])
+        U = self.output()
+        an = another.output()
+        return max([max([abs(an[y][x] - U[y][x]) for x in range(len(U[y]))]) for y in range(len(U))])
 
 def createWorld(args):
     of = open(args.oF, 'x')
@@ -227,6 +263,7 @@ def createWorld(args):
     for y in range(args.N+2):
         of.write('F:   ')
     of.write('\n')
+    of.close()
     print("saved to " + args.oF)
 
 def fromFile(string):
@@ -242,15 +279,45 @@ def fromFile(string):
 
 def runQAgent(args):
     iF = open(args.iF,'r')
-    d, world = fromFile(iF.read()) 
+    d, world = fromFile(iF.read())
+    iF.close()
     agent = QLearningAgent(d, world)
     runAgent(agent)
-        
+
 def runVAgent(args):
     iF = open(args.iF,'r')
-    d, world = fromFile(iF.read()) 
+    d, world = fromFile(iF.read())
+    iF.close()
     agent = ValueIterateAgent(d, world)
     runAgent(agent)
+
+def runPlot(args):
+    iF = open(args.iF,'r')
+    d, world = fromFile(iF.read())
+    iF.close()
+    agentV = ValueIterateAgent(d, world)
+    agentQ = QLearningAgent(d, world)
+    gatherPlotData(agentV, args.oF + '_vAgent', vAgent_iter)
+    gatherPlotData(agentQ, args.oF + '_qAgent', qAgent_iter)
+
+def gatherPlotData(a, oPath, num):
+    oF = open(oPath + '.dat', 'x')
+    s = 0
+    c = 0
+    while True:
+        for x in range(num):
+            c+=1
+            b = deepcopy(a)
+            a.next()
+            oF.write(reduce(add, reduce(add, [[ "{: 7.1f}".format(x) for x in ln] for ln in a.output()])))
+            s+= abs(a.diff(b))
+            oF.write('\n')
+        if(s < 0.2 or c > 10000):
+            break
+        else:
+            s = 0
+    oF.close()
+    
 
 
 mainParser = argparse.ArgumentParser(description="Create or run AI agents in virtual 2D worlds")
@@ -272,6 +339,11 @@ runQAgentParser.set_defaults(func=runQAgent)
 runVAgentParser = subparses.add_parser('run_vagent')
 runVAgentParser.add_argument("iF", help="path from which to load world")
 runVAgentParser.set_defaults(func=runVAgent)
+
+plotParser = subparses.add_parser('plot_data')
+plotParser.add_argument('iF', help="world path")
+plotParser.add_argument('oF', help='output path')
+plotParser.set_defaults(func=runPlot)
 
 if(__name__ == "__main__"):
     args = mainParser.parse_args()
