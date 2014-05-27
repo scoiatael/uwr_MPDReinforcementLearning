@@ -2,7 +2,7 @@
 Ne = 10
 INFINITY = 10000
 vAgent_iter = 10
-qAgent_iter = 1000
+qAgent_iter = 300
 EPSILON=0.05
 
 import argparse
@@ -106,6 +106,7 @@ class World:
         pAndR = [ (ns, self.board.at(ns)) for ns in [ state + p.toPoint() for p in move.possibleOutcomes()] ]
         pAndR = [ (state, self.board.at(state).value) if b.isForbidden() else (s,b.value) for s,b in pAndR ]
         pAndR = [ ( pAndR[0][0],pAndR[0][1], self.a ), ( pAndR[1][0], pAndR[1][1], self.b ), ( pAndR[2][0], pAndR[2][1], self.b ) ]
+       # print("from " + str(state) + "can move " + move.state + " to " + str(pAndR))
         if( not sim ):
             return pAndR
         r = random() - self.a
@@ -130,14 +131,24 @@ class ValueIterateAgent:
         self.U = [[ 0 for x in range(world.N)] for y in range(world.M)]
 
 
+    def processNeighbour(self, s, ns, p):
+        counter = self.U[ns[1]][ns[0]] * p
+#        if s[0] == ns[0] and s[1] == ns[1]:
+#            counter = 0
+        return counter
+
     def processTile(self, x, y):
         tile = self.world.board.at(complex(x,y))
         counter = tile.value
         if(tile.isTerminal()):
             return counter
-        counter += self.d * max([reduce(add, [
-                    self.U[int(s.imag)][int(s.real)] * p for s,v,p in self.world.simulateMove(complex(x,y), Move(move), False) ]) \
-                            for move in allMoves])
+        if(tile.isForbidden()):
+            return 0
+        maxs = [reduce(add, [
+                    self.processNeighbour((x,y), (int(s.real), int(s.imag)), p) for s,v,p in self.world.simulateMove(complex(x,y), Move(move), False) ]) \
+                            for move in allMoves]
+        counter += self.d * max(maxs)
+      #  print("max of " + str(maxs) + " is " + str(max(maxs)))
         return counter
 
     def next(self):
@@ -168,12 +179,18 @@ class QLearningAgent:
                     self.N[(a,x,y)] = 0
         self.d = d
 
-        s = world.board.findStarting()
+        self.reset()
+
+
+    def reset(self):
+        s = self.world.board.findStarting()
         if(s == None):
             raise ValueError("Bad board")
         self.x, self.y = s
-        self.reward = world.board.at(complex(self.x,self.y)).value
+        self.reward = self.world.board.at(complex(self.x,self.y)).value
+        self.generateNewMove()
 
+    def generateNewMove(self):
         possibilites = [ self.ExploreExploit(Move(a)) for a in allMoves ]
         val = max(possibilites)
         self.action = Move(allMoves[possibilites.index(val)])
@@ -192,55 +209,45 @@ class QLearningAgent:
     def next(self):
         s,v,p = self.world.simulateMove(complex(self.x,self.y), self.action)[0]
         nx, ny = (int(s.real), int(s.imag))
-        nreward = self.world.board.at(s).value
+        nt = self.world.board.at(s)
+        nreward = nt.value
 
         if(self.world.board.at(complex(self.x, self.y)).isTerminal()):
-            self.Q[(None, self.x, self.y)] = self.reward
-
-#            s = self.world.board.findStarting()
-#            self.x, self.y = s
-#            self.reward = self.world.board.at(complex(self.x,self.y)).value
-
-#            possibilites = [ self.ExploreExploit(Move(a)) for a in allMoves ]
-#            val = max(possibilites)
-#            self.action = Move(allMoves[possibilites.index(val)])
-#            return
-#            self.reward = None
-#        if(self.reward == None):
-#            self.x, self.y = self.world.board.findStarting()
-#            self.reward = self.world.board.at(complex(self.x, self.y)).value
+            for move in allMoves:
+                self.Q[(move, self.x, self.y)] = self.reward
+#            print("terminal at " + str(self.x) + " " + str(self.y))
+            self.reset()
+            return
 
 
         self.N[(self.action.state, self.x, self.y)] += 1
         self.Q[(self.action.state, self.x, self.y)] += self.timeDiffPar(self.N[(self.action.state, self.x, self.y)]) * \
             (self.reward - self.Q[(self.action.state, self.x, self.y)] + \
-             self.d * max([self.moveUtility(Move(a),nx,ny) for a in allMoves] ))#+ [self.Q[(None, nx, ny)]]))
+             self.d * max([self.moveUtility(Move(a),nx,ny) for a in allMoves])) #+ ([self.Q[(None, nx, ny)]] if nt.isTerminal else [])))
 
      #   print("new val: " + str(self.Q[(self.action, self.x, self.y)]))
 
-        possibilites = [ self.ExploreExploit(Move(a)) for a in allMoves ]
-        val = max(possibilites)
-        self.action = Move(allMoves[possibilites.index(val)])
+        self.generateNewMove();
      #   print("new act: " + str(self.action.state))
         self.x, self.y = (nx,ny)
         self.reward = nreward
      #   print("new reward: " + str(nreward))
 
     def moveUtility(self, a,x,y):
-        s,v,p = self.world.simulateMove(complex(x, y), a, False)[0]
-        x,y = (s.real, s.imag)
-        if(not (a.state, x, y) in self.Q):
-            self.Q[(a.state,x,y)] = 0
+#        s,v,p = self.world.simulateMove(complex(x, y), a, False)[0]
+#        sx,sy = (s.real, s.imag)
+#        if(not (a.state, x, y) in self.Q):
+#            self.Q[(a.state,x,y)] = 0
         return self.Q[(a.state,x,y)]
 
     def output(self):
-        U = [[max([self.Q[(a,x,y)] for a in allMoves] + [self.Q[(None, self.x, self.y)]]) 
+        U = [[max([self.Q[(a,x,y)] for a in allMoves]) #+ ([self.Q[(None, self.x, self.y)]] if self.world.board.at(complex(x,y)).isTerminal() else [])) 
             for x in self.world.rangeN()] for y in self.world.rangeM()]
         return U
 
     def printable(self):
         U = self.output()
-        return reduce(add, reduce(add, [["{: 7.1f}".format(t) for t in ln] + ["\n"] for ln in U])) + "\n at {} {} \n".format(self.x, self.y)
+        return reduce(add, reduce(add, [["{: 7.2f}".format(t) for t in ln] + ["\n"] for ln in U])) + "\n at {} {} \n".format(self.x, self.y)
 
     def diff(self, another):
         U = self.output()
@@ -309,7 +316,7 @@ def gatherPlotData(a, oPath, num):
             c+=1
             b = deepcopy(a)
             a.next()
-            oF.write(reduce(add, reduce(add, [[ "{: 7.1f}".format(x) for x in ln] for ln in a.output()])))
+            oF.write(reduce(add, reduce(add, [[ "{: 7.2f}".format(x) for x in ln] for ln in a.output()])))
             s+= abs(a.diff(b))
             oF.write('\n')
         if(s < 0.2 or c > 10000):
