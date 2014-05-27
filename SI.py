@@ -298,13 +298,18 @@ def runVAgent(args):
     agent = ValueIterateAgent(d, world)
     runAgent(agent)
 
-def runPlot(args):
+def runPlotV(args):
     iF = open(args.iF,'r')
     d, world = fromFile(iF.read())
     iF.close()
     agentV = ValueIterateAgent(d, world)
-    agentQ = QLearningAgent(d, world)
     gatherPlotData(agentV, args.oF + '_vAgent', vAgent_iter)
+
+def runPlotQ(args):
+    iF = open(args.iF,'r')
+    d, world = fromFile(iF.read())
+    iF.close()
+    agentQ = QLearningAgent(d, world)
     gatherPlotData(agentQ, args.oF + '_qAgent', qAgent_iter)
 
 def gatherPlotData(a, oPath, num):
@@ -347,10 +352,14 @@ runVAgentParser = subparses.add_parser('run_vagent')
 runVAgentParser.add_argument("iF", help="path from which to load world")
 runVAgentParser.set_defaults(func=runVAgent)
 
-plotParser = subparses.add_parser('plot_data')
-plotParser.add_argument('iF', help="world path")
-plotParser.add_argument('oF', help='output path')
-plotParser.set_defaults(func=runPlot)
+plotParserV = subparses.add_parser('plot_data_vagent')
+plotParserV.add_argument('iF', help="world path")
+plotParserV.add_argument('oF', help='output path')
+plotParserV.set_defaults(func=runPlotV)
+plotParserQ = subparses.add_parser('plot_data_qagent')
+plotParserQ.add_argument('iF', help="world path")
+plotParserQ.add_argument('oF', help='output path')
+plotParserQ.set_defaults(func=runPlotQ)
 
 if(__name__ == "__main__"):
     args = mainParser.parse_args()
