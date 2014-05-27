@@ -1,0 +1,9 @@
+6  6  0.8  0.1  -1.0  0.6  
+F:   F:   F:   F:    F:    F:   
+F:   _:   _:   _:    _:    F:   
+F:   _:   _:   _:    _:    F:   
+F:   _:   _:   B:-20 _:    F:   
+F:   S:   _:   F:    G:100 F:   
+F:   F:   F:   F:    F:    F:   
+
+Dobralem wspolczynnik przeceniania tak, by zysk z przejscia przez pole o wartosci negatywnej byl wiekszy od zysku z obchodzenia tego pola dookola.

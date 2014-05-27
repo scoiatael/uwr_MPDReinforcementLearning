@@ -1,0 +1,9 @@
+6  6  0.8  0.1  -1.0  0.99  
+F:   F:   F:   F:     F:    F:   
+F:   _:   _:   _:     _:    F:   
+F:   _:   _:   _:     _:    F:   
+F:   _:   _:   B:-200 _:    F:   
+F:   S:   _:   F:     G:100 F:   
+F:   F:   F:   F:     F:    F:   
+
+Zmienilem kare za wejscie do stanu B: widac, ze algorytm teraz bardzo unika wejscia do tego stanu (woli pojsc w gore od niego nic ryzykowac wejscie)

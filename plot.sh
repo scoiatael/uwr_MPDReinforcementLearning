@@ -9,7 +9,7 @@ function add_col {
   echo ${(P)result_name}" '$DATA' u (column(0)):$2 w lines title '$3'"
 }
 
-COM="set output '$1.png'\n set terminal png\n set yrange [-$MINX:$MAXX] \nplot"
+COM="set output '$1.png'\n set terminal png size 1280,1024\n set yrange [-$MINX:$MAXX] \nplot"
 COM=$(add_col COM 9 "(1,1)")
 COM=$COM","
 COM=$(add_col COM 11 "(3,1)")

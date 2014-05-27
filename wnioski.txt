@@ -1,0 +1,7 @@
+W zadaniach 1-5 roznice zapisalem jako komentarze w plikach swiatow (.txt).
+Pod rozszerzeniem .pol zapisane sa polityki, pod .dat tabele zbieznosci, a pod .png wykresy utworzone na podstawie tych tabel.
+Podobnie jest dla zadan z QLearningiem, przy czym:
+Zauwazylem tylko, iz dla epsilon=0.2 wyniki szybciej zbiegaly, natomiast nie bylo istotnej roznice w otrzymanej polityce.
+
+Po uruchomieniu './SI.py -h' pojawia sie opis jak uzywac tego programu.
+Epsilon mozna konfigurowac w pliku programu (jedna z pierwszych zmiennych globalnych).

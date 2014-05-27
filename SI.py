@@ -2,7 +2,7 @@
 Ne = 10
 INFINITY = 10000
 vAgent_iter = 10
-qAgent_iter = 300
+qAgent_iter = 800
 EPSILON=0.05
 
 import argparse
@@ -62,13 +62,21 @@ class Board:
                     return (t,ln)
 
 class Move:
-    PointConversion = { "U":0+1j, "D":0-1j, "L":-1-0j, "R":1-0j }
+    PointConversion = { "U":0-1j, "D":0+1j, "L":-1-0j, "R":1-0j }
 
     def __init__(self, state):
         if(state in Move.PointConversion.keys()):
             self.state=state
+        elif abs(state - Move.PointConversion["U"]) < 0.1:
+            self.state = "U"
+        elif abs(state - Move.PointConversion["L"]) < 0.1:
+            self.state = "L"
+        elif abs(state - Move.PointConversion["R"]) < 0.1:
+            self.state = "R"
+        elif abs(state - Move.PointConversion["D"]) < 0.1:
+            self.state = "D"
         else:
-            raise ValueError("Bad move definition")
+            raise ValueError("Bad move definition {}".format(str(state)))
 
     def isUp(self):
         return self.state=="U"
@@ -106,7 +114,6 @@ class World:
         pAndR = [ (ns, self.board.at(ns)) for ns in [ state + p.toPoint() for p in move.possibleOutcomes()] ]
         pAndR = [ (state, self.board.at(state).value) if b.isForbidden() else (s,b.value) for s,b in pAndR ]
         pAndR = [ ( pAndR[0][0],pAndR[0][1], self.a ), ( pAndR[1][0], pAndR[1][1], self.b ), ( pAndR[2][0], pAndR[2][1], self.b ) ]
-       # print("from " + str(state) + "can move " + move.state + " to " + str(pAndR))
         if( not sim ):
             return pAndR
         r = random() - self.a
@@ -122,7 +129,6 @@ class World:
     def rangeM(self):
         return range(self.M)[1:-1]
 
-
 class ValueIterateAgent:
     '''Agent using value iteration algorithm'''
     def __init__(self, d, world):
@@ -133,8 +139,6 @@ class ValueIterateAgent:
 
     def processNeighbour(self, s, ns, p):
         counter = self.U[ns[1]][ns[0]] * p
-#        if s[0] == ns[0] and s[1] == ns[1]:
-#            counter = 0
         return counter
 
     def processTile(self, x, y):
@@ -144,12 +148,21 @@ class ValueIterateAgent:
             return counter
         if(tile.isForbidden()):
             return 0
-        maxs = [reduce(add, [
-                    self.processNeighbour((x,y), (int(s.real), int(s.imag)), p) for s,v,p in self.world.simulateMove(complex(x,y), Move(move), False) ]) \
-                            for move in allMoves]
+        maxs = self.expValues(x,y)
         counter += self.d * max(maxs)
-      #  print("max of " + str(maxs) + " is " + str(max(maxs)))
         return counter
+
+    def expValues(self,x,y):
+        return [reduce(add, [
+                    self.processNeighbour((x,y), (int(s.real), int(s.imag)), p) \
+                            for s,v,p in self.world.simulateMove(complex(x,y), Move(move), False) ]) \
+                                for move in allMoves]
+
+    def bestMove(self,x,y):
+        maxs = self.expValues(x,y)
+        maxv = max(maxs)
+        pos = maxs.index(maxv)
+        return allMoves[pos]
 
     def next(self):
         self.U = [[0 for x in range(self.world.N)]] + [[0] + [self.processTile(x,y)
@@ -161,10 +174,13 @@ class ValueIterateAgent:
 
     def printable(self):
         U = self.output()
-        return reduce(add, reduce(add, [["{: 7.1f}".format(t) for t in ln] + ["\n"] for ln in U]))
+        return reduce(add, reduce(add, [[" {: 9.2f} ".format(t) for t in ln] + ["\n"] for ln in U]))
 
     def output(self):
         return [lne[1:-1] for lne in self.U[1:-1]]
+
+    def politics(self):
+        return [[self.bestMove(x,y) for x in self.world.rangeN()] for y in self.world.rangeM()]
 
 class QLearningAgent:
     '''Agent using Q-learning algorithm'''
@@ -200,7 +216,6 @@ class QLearningAgent:
         return 1/(v+1)
 
     def ExploreExploit(self, a):
-#        if(self.N[(a.state,self.x,self.y)] < Ne):
         if random() > EPSILON*4:
             return INFINITY*random()
         else:
@@ -215,7 +230,6 @@ class QLearningAgent:
         if(self.world.board.at(complex(self.x, self.y)).isTerminal()):
             for move in allMoves:
                 self.Q[(move, self.x, self.y)] = self.reward
-#            print("terminal at " + str(self.x) + " " + str(self.y))
             self.reset()
             return
 
@@ -225,29 +239,32 @@ class QLearningAgent:
             (self.reward - self.Q[(self.action.state, self.x, self.y)] + \
              self.d * max([self.moveUtility(Move(a),nx,ny) for a in allMoves])) #+ ([self.Q[(None, nx, ny)]] if nt.isTerminal else [])))
 
-     #   print("new val: " + str(self.Q[(self.action, self.x, self.y)]))
 
         self.generateNewMove();
-     #   print("new act: " + str(self.action.state))
         self.x, self.y = (nx,ny)
         self.reward = nreward
-     #   print("new reward: " + str(nreward))
 
     def moveUtility(self, a,x,y):
-#        s,v,p = self.world.simulateMove(complex(x, y), a, False)[0]
-#        sx,sy = (s.real, s.imag)
-#        if(not (a.state, x, y) in self.Q):
-#            self.Q[(a.state,x,y)] = 0
         return self.Q[(a.state,x,y)]
 
     def output(self):
-        U = [[max([self.Q[(a,x,y)] for a in allMoves]) #+ ([self.Q[(None, self.x, self.y)]] if self.world.board.at(complex(x,y)).isTerminal() else [])) 
-            for x in self.world.rangeN()] for y in self.world.rangeM()]
+        U = [[max([self.Q[(a,x,y)] for a in allMoves]) \
+                for x in self.world.rangeN()] for y in self.world.rangeM()]
         return U
+
+    def bestMove(self,x,y):
+        maxs = [self.Q[(a,x,y)] for a in allMoves]
+        maxv = max(maxs)
+        pos = maxs.index(maxv)
+        return allMoves[pos]
+
+    def politics(self):
+        return [[ self.bestMove(x,y)\
+                for x in self.world.rangeN()] for y in self.world.rangeM()]
 
     def printable(self):
         U = self.output()
-        return reduce(add, reduce(add, [["{: 7.2f}".format(t) for t in ln] + ["\n"] for ln in U])) + "\n at {} {} \n".format(self.x, self.y)
+        return reduce(add, reduce(add, [[" {: 9.2f} ".format(t) for t in ln] + ["\n"] for ln in U])) + "\n at {} {} \n".format(self.x, self.y)
 
     def diff(self, another):
         U = self.output()
@@ -255,7 +272,7 @@ class QLearningAgent:
         return max([max([abs(an[y][x] - U[y][x]) for x in range(len(U[y]))]) for y in range(len(U))])
 
 def createWorld(args):
-    of = open(args.oF, 'x')
+    of = open(args.oF, 'w')
     of.write(reduce(add, [str(x)+"  " for x in [args.N+2, args.M+2, args.a, args.b, args.r, args.d]]))
     of.write('\n')
     for y in range(args.N+2):
@@ -282,7 +299,7 @@ def fromFile(string):
     b=float(vrs[3])
     r=float(vrs[4])
     d=float(vrs[5])
-    return (d, World(N,M,a,b,r,lnes[1:]))
+    return (d, World(N,M,a,b,r,lnes[1:M+1]))
 
 def runQAgent(args):
     iF = open(args.iF,'r')
@@ -313,15 +330,17 @@ def runPlotQ(args):
     gatherPlotData(agentQ, args.oF + '_qAgent', qAgent_iter)
 
 def gatherPlotData(a, oPath, num):
-    oF = open(oPath + '.dat', 'x')
+    oF = open(oPath + '.dat', 'w')
     s = 0
     c = 0
     while True:
+        if c % 100 == 0 :
+            print('.')
         for x in range(num):
             c+=1
             b = deepcopy(a)
             a.next()
-            oF.write(reduce(add, reduce(add, [[ "{: 7.2f}".format(x) for x in ln] for ln in a.output()])))
+            oF.write(reduce(add, reduce(add, [[ " {: 9.2f} ".format(x) for x in ln] for ln in a.output()])))
             s+= abs(a.diff(b))
             oF.write('\n')
         if(s < 0.2 or c > 10000):
@@ -329,11 +348,24 @@ def gatherPlotData(a, oPath, num):
         else:
             s = 0
     oF.close()
+    oFp= open(oPath + '.pol', 'w')
+    poli = a.politics()
+    for y in a.world.rangeM():
+        for x in a.world.rangeN():
+            if a.world.board.at(complex(x,y)).isForbidden():
+                poli[y-1][x-1]="X"
+            if a.world.board.at(complex(x,y)).isTerminal():
+                if a.world.board.at(complex(x,y)).value < 0:
+                    poli[y-1][x-1]="-"
+                else:
+                    poli[y-1][x-1]="+"
+    oFp.write(reduce(add, [reduce(add, [ x + " " for x in ln] ) + "\n" for ln in poli]))
+    oFp.close()
+
     
 
 
 mainParser = argparse.ArgumentParser(description="Create or run AI agents in virtual 2D worlds")
-#mainParser.set_defaults(func = id)
 subparses = mainParser.add_subparsers()
 createWorldParsers = subparses.add_parser('create_world')
 createWorldParsers.add_argument("-N", type=int, help="width",required=True)
